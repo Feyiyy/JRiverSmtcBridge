@@ -13,6 +13,21 @@ int port = 52199;
 string? username = null;
 string? password = null;
 int pollIntervalMs = 500;
+#if DEBUG
+bool debug = true;
+#else
+bool debug = false;
+#endif
+
+// 命令行参数检查（支持 --debug / -d 或 --no-debug）
+if (args.Contains("--debug", StringComparer.OrdinalIgnoreCase) || args.Contains("-d", StringComparer.OrdinalIgnoreCase))
+{
+    debug = true;
+}
+else if (args.Contains("--no-debug", StringComparer.OrdinalIgnoreCase))
+{
+    debug = false;
+}
 
 void LoadConfig(string filePath)
 {
@@ -28,6 +43,7 @@ void LoadConfig(string filePath)
             if (jriverConfig.TryGetProperty("Username", out var u)) username = u.GetString();
             if (jriverConfig.TryGetProperty("Password", out var pwd)) password = pwd.GetString();
             if (jriverConfig.TryGetProperty("PollIntervalMs", out var interval)) pollIntervalMs = interval.GetInt32();
+            if (jriverConfig.TryGetProperty("Debug", out var dbg)) debug = dbg.GetBoolean();
         }
     }
     catch (Exception ex)
@@ -44,6 +60,7 @@ LoadConfig(Path.Combine(baseDir, "appsettings.local.json"));
 Console.WriteLine($"[Config] 连接目标: http://{host}:{port}");
 Console.WriteLine($"[Config] 认证配置: {(string.IsNullOrEmpty(username) ? "无认证" : $"已配置用户: {username}")}");
 Console.WriteLine($"[Config] 轮询间隔: {pollIntervalMs} ms");
+Console.WriteLine($"[Config] 调试日志: {(debug ? "开启 (输出时间轴与详细状态)" : "关闭")}");
 Console.WriteLine();
 
 using var cts = new CancellationTokenSource();
@@ -55,7 +72,7 @@ Console.CancelKeyPress += (s, e) =>
 };
 
 using var mcwsClient = new JRiverMcwsClient(host, port, username, password);
-using var smtcManager = new SmtcManager(mcwsClient);
+using var smtcManager = new SmtcManager(mcwsClient, debug);
 
 bool wasConnected = false;
 

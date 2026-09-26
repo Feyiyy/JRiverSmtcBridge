@@ -1,23 +1,15 @@
-## .NET & Build outputs
-bin/
-obj/
+# Build results
+[Bb]in/
+[Oo]bj/
+publish/
+*.zip
+
+# Visual Studio / Rider
+.vs/
+.idea/
 *.user
 *.userosscache
 *.sln.docstates
 
-## IDEs
-.vs/
-.idea/
-*.suo
-*.userprefs
-*.launchSettings.json
-
-## Local secrets & environment configuration
+# Local configs
 appsettings.local.json
-appsettings.*.local.json
-
-## OS files
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-.DS_Store
