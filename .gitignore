@@ -1,0 +1,23 @@
+## .NET & Build outputs
+bin/
+obj/
+*.user
+*.userosscache
+*.sln.docstates
+
+## IDEs
+.vs/
+.idea/
+*.suo
+*.userprefs
+*.launchSettings.json
+
+## Local secrets & environment configuration
+appsettings.local.json
+appsettings.*.local.json
+
+## OS files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
