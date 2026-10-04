@@ -1,25 +1,50 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <!-- 目标框架必须包含 -windows 以便引用 Windows WinRT API (SystemMediaTransportControls) -->
+    <OutputType>WinExe</OutputType>
+    <!-- 目标框架必须包含 -windows 以便引用 Windows WinRT API (SystemMediaTransportControls) 与 WinForms (NotifyIcon) -->
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>JRiver.SmtcBridge</RootNamespace>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
 
-    <!-- 单文件发布配置 -->
+    <!-- 默认单文件构建与发布配置 -->
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+
+    <!-- 去除多余的附属语言资源包（避免生成各语言子目录） -->
+    <SatelliteResourceLanguages>none</SatelliteResourceLanguages>
+
+    <!-- 去除调试符号文件以精简输出目录 -->
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <CopyOutputSymbolsToOutputDirectory>false</CopyOutputSymbolsToOutputDirectory>
   </PropertyGroup>
 
+  <!-- 构建完成后自动生成单文件发布输出 -->
+  <Target Name="PublishOnBuild" AfterTargets="Build" Condition="'$(IsPublishing)' != 'true' and '$(BuildingInsidePublish)' != 'true'">
+    <MSBuild Projects="$(MSBuildProjectFullPath)"
+             Targets="Publish"
+             Properties="IsPublishing=true;BuildingInsidePublish=true;Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier)" />
+  </Target>
+
   <ItemGroup>
-    <None Update="appsettings.json">
+    <Content Include="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+    </Content>
+    <Content Include="appsettings.local.json" Condition="Exists('appsettings.local.json')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+    </Content>
+    <!-- 默认资产作为嵌入资源编译进单文件 exe，无需向输出目录拷贝多余资源文件夹 -->
+    <EmbeddedResource Include="Assets\app.ico" />
+    <EmbeddedResource Include="Assets\default_cover.jpg" />
   </ItemGroup>
 
 </Project>

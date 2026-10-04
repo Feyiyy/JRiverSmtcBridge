@@ -27,19 +27,11 @@ jobs:
         run: |
           dotnet publish JRiver.SmtcBridge.csproj -c Release -o publish
 
-      - name: Package Release Zip
-        shell: pwsh
-        run: |
-          $tag = if ($env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { "v1.0.0" }
-          $zipName = "JRiver.SmtcBridge-$tag-win-x64.zip"
-          Compress-Archive -Path publish/JRiver.SmtcBridge.exe, publish/appsettings.json, README.md, LICENSE -DestinationPath $zipName
-          echo "ZIP_PATH=$zipName" >> $env:GITHUB_ENV
-
-      - name: Upload Release Asset
+      - name: Upload Single-File Release Asset
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         with:
-          files: ${{ env.ZIP_PATH }}
+          files: publish/JRiver.SmtcBridge.exe
           generate_release_notes: true
           draft: false
           prerelease: false

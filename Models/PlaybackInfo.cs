@@ -15,6 +15,10 @@ public class PlaybackInfo
     public string Title { get; set; } = string.Empty;
     public string Artist { get; set; } = string.Empty;
     public string Album { get; set; } = string.Empty;
+    public string AlbumArtist { get; set; } = string.Empty;
+    public uint TrackNumber { get; set; }
+    public uint AlbumTrackCount { get; set; }
+    public string Genre { get; set; } = string.Empty;
     public string FileKey { get; set; } = string.Empty;
     public long PositionMs { get; set; }
     public long DurationMs { get; set; }
