@@ -29,6 +29,60 @@ public class JRiverMcwsClient : IDisposable
         try { oldClient.Dispose(); } catch { }
     }
 
+    public static async Task<(bool success, string message)> TestConnectionAsync(string host, int port, string? username, string? password, CancellationToken ct = default)
+    {
+        try
+        {
+            var baseUrl = $"http://{host}:{port}";
+            using var client = CreateHttpClient(baseUrl, username, password);
+            client.Timeout = TimeSpan.FromSeconds(3);
+
+            using var response = await client.GetAsync("/MCWS/v1/Alive", ct);
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                return (false, "身份验证失败 (401)：用户名或密码错误");
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return (false, $"连接返回状态码: {(int)response.StatusCode} {response.ReasonPhrase}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(ct);
+            if (!string.IsNullOrWhiteSpace(content))
+            {
+                try
+                {
+                    var doc = XDocument.Parse(content);
+                    if (doc.Root?.Attribute("Status")?.Value?.Equals("Failed", StringComparison.OrdinalIgnoreCase) == true)
+                    {
+                        var err = doc.Root.Attribute("ErrorMessage")?.Value ?? doc.Root.Attribute("Error")?.Value ?? "未知错误";
+                        return (false, $"服务返回失败: {err}");
+                    }
+                }
+                catch { }
+            }
+
+            return (true, "连接成功！JRiver MCWS 服务正常响应");
+        }
+        catch (HttpRequestException ex)
+        {
+            if (ex.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                return (false, "身份验证失败 (401)：用户名或密码错误");
+            }
+            return (false, $"无法连接到 JRiver: {ex.Message}");
+        }
+        catch (TaskCanceledException)
+        {
+            return (false, "连接超时，请检查服务地址和端口是否正确且 JRiver 已启动");
+        }
+        catch (Exception ex)
+        {
+            return (false, $"连接异常: {ex.Message}");
+        }
+    }
+
     private static HttpClient CreateHttpClient(string baseUrl, string? username, string? password)
     {
         var handler = new HttpClientHandler();
@@ -219,18 +273,29 @@ public class JRiverMcwsClient : IDisposable
         }
     }
 
-    private PlaybackInfo ParsePlaybackInfoXml(string xml)
+    private PlaybackInfo? ParsePlaybackInfoXml(string xml)
     {
-        var info = new PlaybackInfo();
-        if (string.IsNullOrWhiteSpace(xml)) return info;
+        if (string.IsNullOrWhiteSpace(xml)) return null;
 
         try
         {
             var doc = XDocument.Parse(xml);
+            if (doc.Root != null && doc.Root.Attribute("Status")?.Value?.Equals("Failed", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                var error = doc.Root.Attribute("ErrorMessage")?.Value ?? doc.Root.Attribute("Error")?.Value ?? "";
+                if (IsDebugEnabled) Console.WriteLine($"[MCWS] JRiver 返回错误: {error}");
+                if (error.Contains("auth", StringComparison.OrdinalIgnoreCase) || error.Contains("password", StringComparison.OrdinalIgnoreCase))
+                {
+                    AuthFailed?.Invoke();
+                }
+                return null;
+            }
+
             var items = doc.Descendants("Item")
                 .Where(x => x.Attribute("Name") != null)
                 .ToDictionary(x => x.Attribute("Name")!.Value, x => x.Value, StringComparer.OrdinalIgnoreCase);
 
+            var info = new PlaybackInfo();
             if (items.TryGetValue("State", out var stateStr) && int.TryParse(stateStr, out var stateVal))
             {
                 info.State = (PlaybackState)stateVal;
@@ -269,7 +334,10 @@ public class JRiverMcwsClient : IDisposable
                 info.Genre = genre;
             }
 
-            if (items.TryGetValue("FileKey", out var fileKey)) info.FileKey = fileKey;
+            if (items.TryGetValue("FileKey", out var fileKey))
+            {
+                info.FileKey = fileKey;
+            }
 
             if (items.TryGetValue("PositionMS", out var posStr) && long.TryParse(posStr, out var pos))
             {
@@ -280,13 +348,14 @@ public class JRiverMcwsClient : IDisposable
             {
                 info.DurationMs = dur;
             }
+
+            return info;
         }
         catch (Exception ex)
         {
-            if (IsDebugEnabled) Console.WriteLine($"[MCWS] 解析 XML 失败: {ex.Message}");
+            if (IsDebugEnabled) Console.WriteLine($"[MCWS] 解析播放信息 XML 失败: {ex.Message}");
+            return null;
         }
-
-        return info;
     }
 
     public async Task PlayPauseAsync() => await SendCommandAsync("/MCWS/v1/Playback/PlayPause");
@@ -295,11 +364,7 @@ public class JRiverMcwsClient : IDisposable
     public async Task StopAsync() => await SendCommandAsync("/MCWS/v1/Playback/Stop");
     public async Task NextAsync() => await SendCommandAsync("/MCWS/v1/Playback/Next");
     public async Task PreviousAsync() => await SendCommandAsync("/MCWS/v1/Playback/Previous");
-
-    public async Task SeekAsync(long positionMs)
-    {
-        await SendCommandAsync($"/MCWS/v1/Playback/Position?Position={positionMs}");
-    }
+    public async Task SeekAsync(long positionMs) => await SendCommandAsync($"/MCWS/v1/Playback/Position?Position={positionMs}");
 
     private async Task SendCommandAsync(string endpoint)
     {

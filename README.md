@@ -44,7 +44,8 @@ JRiver.SmtcBridge 是一个轻量级、静默运行的 Windows 后台工具，�
     "Username": "",
     "Password": "",
     "PollIntervalMs": 500,
-    "Debug": false
+    "Debug": false,
+    "ShowNotifications": true
   }
 }
 ```
@@ -53,10 +54,11 @@ JRiver.SmtcBridge 是一个轻量级、静默运行的 Windows 后台工具，�
 - `Username` / `Password`：JRiver 媒体网络的用户名和密码（未启用验证则留空）。
 - `PollIntervalMs`：状态轮询间隔（毫秒），默认 `500` ms。内置时间轴智能去重算法，保证歌词平滑推算滚动且不抖动。
 - `Debug`：调试日志开关，默认 `false`（完全静默托盘运行）。设为 `true` 时自动打开控制台窗口输出详细同步日志。
+- `ShowNotifications`：桌面气泡通知开关，默认 `true`。仅在关键状态切换时轻量通知一次，不会循环打扰；可随时在托盘右键菜单中取消勾选关闭。
 
 #### 3. 运行程序
-- **首次运行向导**：首次启动程序时会自动弹出连接配置窗口，引导设置 JRiver MCWS 的服务端口与认证凭据（若 JRiver 未启用密码验证直接留空点击保存即可）；配置将自动保存在同级目录下的 `appsettings.json` 中。
-- **日常使用（静默托盘）**：配置完成后双击运行直接静默常驻任务栏右下角托盘，不弹窗、不打扰。可随时在托盘右键菜单中点击 **“连接与认证设置”** 进行修改。
+- **首次运行向导**：首次启动程序时会自动弹出连接配置窗口，引导设置 JRiver MCWS 的服务端口与认证凭据，支持点击“测试连接”实时校验（若 JRiver 未启用密码验证直接留空点击保存即可）；配置将自动保存在同级目录下的 `appsettings.json` 中。
+- **日常使用（静默托盘）**：配置完成后双击运行直接静默常驻任务栏右下角托盘，不弹窗、不打扰。状态（已连接/等待连接/认证失败）可通过鼠标悬停托盘图标或托盘菜单静默查看。可随时在托盘右键菜单中点击 **“连接与认证设置”** 进行修改。
 - **调试排查模式**：
   - 命令行运行：`JRiver.SmtcBridge.exe --debug` 或 `JRiver.SmtcBridge.exe -d`；
   - 托盘控制：运行时随时在任务栏托盘图标右键点击 **“显示调试控制台”** 即可实时唤出控制台窗口，双击托盘图标亦可快速切换。
@@ -103,7 +105,8 @@ The `appsettings.json` file is located next to the executable (also supports loc
     "Username": "",
     "Password": "",
     "PollIntervalMs": 500,
-    "Debug": false
+    "Debug": false,
+    "ShowNotifications": true
   }
 }
 ```
@@ -112,10 +115,11 @@ The `appsettings.json` file is located next to the executable (also supports loc
 - `Username` / `Password`: Credentials for JRiver Media Network (leave blank if authentication is disabled).
 - `PollIntervalMs`: Status polling interval in milliseconds (default `500` ms). Features smart timeline deduplication to keep lyrics scrolling smooth without jitter.
 - `Debug`: Debug logging toggle (default `false`, completely silent in tray). Set to `true` to view detailed synchronization logs in console.
+- `ShowNotifications`: Desktop balloon notification toggle (default `true`). Only notifies once on key state transitions, never spams. Can be toggled anytime from the tray right-click menu.
 
 #### 3. How to Run
-- **First Run Setup**: On first launch, a setup dialog will automatically appear to configure JRiver MCWS connection details and credentials (if authentication is disabled in JRiver, simply leave them blank and click Save). Settings are saved to `appsettings.json`.
-- **Daily Usage (Silent Tray)**: Once configured, simply double-click `JRiver.SmtcBridge.exe`. It runs silently in the system tray without popup windows. You can right-click the tray icon to change connection settings anytime.
+- **First Run Setup**: On first launch, a setup dialog will automatically appear to configure JRiver MCWS connection details and credentials, with an integrated "Test Connection" button. Settings are saved to `appsettings.json`.
+- **Daily Usage (Silent Tray)**: Once configured, simply double-click `JRiver.SmtcBridge.exe`. It runs silently in the system tray without popup windows. Current status (connected/waiting/auth failed) is quietly visible via tray tooltip and context menu. You can right-click the tray icon to change connection settings anytime.
 - **Debug Mode**:
   - Run via command line: `JRiver.SmtcBridge.exe --debug` or `JRiver.SmtcBridge.exe -d`;
   - Tray icon: Right-click the system tray icon and select **"显示调试控制台" (Show Debug Console)**, or double-click the tray icon.

@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -71,6 +71,8 @@ internal static class Program
     private static AppConfig _config = new();
     private static PlaybackInfo? _latestPlaybackInfo;
     private static bool _isConnected = false;
+    private static bool _hasNotifiedAuthFailure = false;
+    private static bool _hasNotifiedConnectionSuccess = false;
 
     [STAThread]
     static async Task Main(string[] args)
@@ -101,12 +103,14 @@ internal static class Program
             }
         }
 
-        // 3. 加载配置（首次启动时主动弹出高 DPI 自适应配置窗提醒输入用户名与密码）
+        // 3. 读取配置文件（首次启动若无配置则自动弹出连接向导）
         _config = LoadConfiguration();
+
+        // 确定是否输出调试日志
         _alwaysDebug = debugArg ?? _config.Debug;
         _isDebugActive = _alwaysDebug;
 
-        // 4. 初始化为 Debug 模式时直接展开控制台
+        // 4. 若开启 debug，初始化并附加控制台窗口
         if (_alwaysDebug)
         {
             EnsureConsole();
@@ -138,9 +142,22 @@ internal static class Program
         {
             if (ShowConfigDialog(_config, isFirstRun: false))
             {
+                _hasNotifiedAuthFailure = false;
+                _hasNotifiedConnectionSuccess = false;
                 _mcwsClient?.UpdateConnection(_config.Host, _config.Port, _config.Username, _config.Password);
-                notifyIcon.ShowBalloonTip(2000, "JRiver SMTC Bridge", "连接设置已更新，正在尝试重新连接...", ToolTipIcon.Info);
+                ShowNotification(notifyIcon, "JRiver SMTC Bridge", "连接设置已更新，正在尝试重新连接...", ToolTipIcon.Info);
             }
+        };
+
+        var notifItem = new ToolStripMenuItem("显示气泡通知")
+        {
+            Checked = _config.ShowNotifications,
+            CheckOnClick = true
+        };
+        notifItem.CheckedChanged += (s, e) =>
+        {
+            _config.ShowNotifications = notifItem.Checked;
+            SaveConfiguration(_config);
         };
 
         var toggleConsoleItem = new ToolStripMenuItem(_isConsoleVisible ? "隐藏调试控制台" : "显示调试控制台");
@@ -162,6 +179,7 @@ internal static class Program
         contextMenu.Items.Add(trackItem);
         contextMenu.Items.Add(new ToolStripSeparator());
         contextMenu.Items.Add(configItem);
+        contextMenu.Items.Add(notifItem);
         contextMenu.Items.Add(toggleConsoleItem);
         contextMenu.Items.Add(new ToolStripSeparator());
         contextMenu.Items.Add(exitItem);
@@ -188,7 +206,19 @@ internal static class Program
 
         _mcwsClient.AuthFailed += () =>
         {
-            notifyIcon.ShowBalloonTip(3000, "JRiver 认证失败", "MCWS 身份验证失败 (401)，请在托盘右键菜单中打开“连接与认证设置”输入正确的用户名和密码。", ToolTipIcon.Warning);
+            // 仅在首次检测到认证失败时弹窗提示一次，杜绝轮询中重复弹窗轰炸
+            if (!_hasNotifiedAuthFailure)
+            {
+                _hasNotifiedAuthFailure = true;
+                ShowNotification(notifyIcon, "JRiver 认证失败", "MCWS 身份验证失败 (401)，请在托盘右键菜单中打开“连接与认证设置”输入正确的用户名和密码。", ToolTipIcon.Warning, 4000);
+            }
+
+            try
+            {
+                statusItem.Text = "状态: 认证失败 (401)";
+                notifyIcon.Text = "JRiver SMTC Bridge\nMCWS 认证失败 (401)";
+            }
+            catch { }
         };
 
         _smtcManager = new SmtcManager(_mcwsClient, _isDebugActive);
@@ -233,6 +263,8 @@ internal static class Program
         var syncTask = Task.Run(async () =>
         {
             int pollInterval = Math.Max(_config.PollIntervalMs, 100);
+            int consecutiveFailures = 0;
+            const int maxFailuresBeforeDisconnect = 3;
 
             while (!cts.IsCancellationRequested)
             {
@@ -243,6 +275,9 @@ internal static class Program
 
                     if (playbackInfo != null)
                     {
+                        consecutiveFailures = 0;
+                        _hasNotifiedAuthFailure = false;
+
                         if (!_isConnected)
                         {
                             _isConnected = true;
@@ -253,16 +288,25 @@ internal static class Program
                                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] 成功连接至 JRiver Media Center!");
                                 Console.ResetColor();
                             }
-                            notifyIcon.ShowBalloonTip(2000, "JRiver SMTC Bridge", "已连接至 JRiver Media Center", ToolTipIcon.Info);
+
+                            if (!_hasNotifiedConnectionSuccess)
+                            {
+                                _hasNotifiedConnectionSuccess = true;
+                                ShowNotification(notifyIcon, "JRiver SMTC Bridge", "已连接至 JRiver Media Center", ToolTipIcon.Info);
+                            }
                         }
 
                         _smtcManager.Update(playbackInfo);
                     }
                     else
                     {
-                        if (_isConnected)
+                        consecutiveFailures++;
+
+                        // 连续多次失败后判定断开连接，避免单次网络抖动引发频繁状态跳变
+                        if (_isConnected && consecutiveFailures >= maxFailuresBeforeDisconnect)
                         {
                             _isConnected = false;
+                            _hasNotifiedConnectionSuccess = false;
                             statusItem.Text = "状态: JRiver 已断开";
                             trackItem.Text = "曲目: (无)";
                             notifyIcon.Text = "JRiver SMTC Bridge\n等待连接 JRiver...";
@@ -297,86 +341,81 @@ internal static class Program
                     break;
                 }
             }
+        });
 
-            _smtcManager.SetDisconnected();
-        }, cts.Token);
-
-        // 8. 启动消息循环保持托盘图标响应
+        // 8. 运行 WinForms 主消息循环
         Application.Run();
 
-        // 退出清理
+        // 9. 退出前清理资源
         cts.Cancel();
-        notifyIcon.Visible = false;
         try { await syncTask; } catch { }
 
-        _smtcManager.Dispose();
-        _mcwsClient.Dispose();
+        _smtcManager?.SetDisconnected();
+        _smtcManager?.Dispose();
+        _mcwsClient?.Dispose();
+        notifyIcon.Visible = false;
+
+        if (_consoleInitialized)
+        {
+            FreeConsole();
+        }
     }
 
-    private static void SetDebugActive(bool active)
+    private static void ShowNotification(NotifyIcon notifyIcon, string title, string message, ToolTipIcon icon, int timeoutMs = 2500)
     {
-        _isDebugActive = active;
-        if (_mcwsClient != null) _mcwsClient.IsDebugEnabled = active;
-        if (_smtcManager != null) _smtcManager.IsDebugEnabled = active;
+        if (!_config.ShowNotifications) return;
+        try
+        {
+            notifyIcon.ShowBalloonTip(timeoutMs, title, message, icon);
+        }
+        catch { }
     }
 
     private static void EnsureConsole()
     {
-        if (_consoleInitialized)
-        {
-            var h = GetConsoleWindow();
-            if (h != IntPtr.Zero)
-            {
-                ShowWindow(h, SW_SHOW);
-                _isConsoleVisible = true;
-            }
-            return;
-        }
+        if (_consoleInitialized) return;
 
-        // 优先附加到父进程控制台（命令行启动）
+        // 尝试附加到父进程控制台
         if (!AttachConsole(ATTACH_PARENT_PROCESS))
         {
-            // 否则分配新的控制台窗口（双击启动）
             AllocConsole();
         }
-
-        // 设置控制台为 UTF-8 编码
-        SetConsoleOutputCP(65001);
-        SetConsoleCP(65001);
 
         var hWnd = GetConsoleWindow();
         if (hWnd != IntPtr.Zero)
         {
-            // 禁用控制台右上角关闭按钮，防止误关导致主程序闪退
+            // 禁用关闭按钮，防止意外点击关闭控制台导致主程序直接终止
             var hMenu = GetSystemMenu(hWnd, false);
             if (hMenu != IntPtr.Zero)
             {
                 DeleteMenu(hMenu, SC_CLOSE, MF_BYCOMMAND);
             }
-
-            ShowWindow(hWnd, SW_SHOW);
-            _isConsoleVisible = true;
         }
+
+        // 初始化 UTF-8 编码与标准输出重定向
+        SetConsoleOutputCP(65001);
+        SetConsoleCP(65001);
+        Console.OutputEncoding = Encoding.UTF8;
+        Console.InputEncoding = Encoding.UTF8;
 
         try
         {
-            var handle = CreateFile("CONOUT$", GENERIC_WRITE, FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
-            if (!handle.IsInvalid)
+            var hStdOut = CreateFile("CONOUT$", GENERIC_WRITE, FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
+            if (!hStdOut.IsInvalid)
             {
-                SetStdHandle(STD_OUTPUT_HANDLE, handle.DangerousGetHandle());
-                SetStdHandle(STD_ERROR_HANDLE, handle.DangerousGetHandle());
-                var fs = new FileStream(handle, FileAccess.Write);
-                var writer = new StreamWriter(fs, new UTF8Encoding(false)) { AutoFlush = true };
-                Console.SetOut(writer);
-                Console.SetError(writer);
+                SetStdHandle(STD_OUTPUT_HANDLE, hStdOut.DangerousGetHandle());
+                SetStdHandle(STD_ERROR_HANDLE, hStdOut.DangerousGetHandle());
             }
+
+            var stdOutStream = Console.OpenStandardOutput();
+            var stdOutWriter = new StreamWriter(stdOutStream, new UTF8Encoding(false)) { AutoFlush = true };
+            Console.SetOut(stdOutWriter);
+            Console.SetError(stdOutWriter);
         }
         catch { }
 
-        Console.OutputEncoding = new UTF8Encoding(false);
-        Console.InputEncoding = new UTF8Encoding(false);
-        Console.Title = "JRiver SMTC Bridge - 调试日志";
         _consoleInitialized = true;
+        _isConsoleVisible = true;
     }
 
     private static void ToggleConsole()
@@ -384,76 +423,52 @@ internal static class Program
         if (!_consoleInitialized)
         {
             EnsureConsole();
-            SetDebugActive(true);
             PrintBanner(_config);
-            PrintCurrentSnapshot();
             return;
         }
 
         var hWnd = GetConsoleWindow();
-        if (hWnd == IntPtr.Zero) return;
-
-        if (_isConsoleVisible)
+        if (hWnd != IntPtr.Zero)
         {
-            ShowWindow(hWnd, SW_HIDE);
-            _isConsoleVisible = false;
-
-            // 若非命令行强制 debug 或配置文件开启 debug，隐藏控制台时关闭冗余输出
-            if (!_alwaysDebug)
+            _isConsoleVisible = !_isConsoleVisible;
+            ShowWindow(hWnd, _isConsoleVisible ? SW_SHOW : SW_HIDE);
+            _isDebugActive = _isConsoleVisible || _alwaysDebug;
+            if (_mcwsClient != null)
             {
-                SetDebugActive(false);
+                _mcwsClient.IsDebugEnabled = _isDebugActive;
             }
-        }
-        else
-        {
-            ShowWindow(hWnd, SW_SHOW);
-            _isConsoleVisible = true;
-            SetDebugActive(true);
+            if (_smtcManager != null)
+            {
+                _smtcManager.IsDebugEnabled = _isDebugActive;
+            }
 
-            PrintBanner(_config);
-            PrintCurrentSnapshot();
+            if (_isConsoleVisible)
+            {
+                PrintCurrentState();
+            }
         }
     }
 
     private static void PrintBanner(AppConfig config)
     {
         Console.ForegroundColor = ConsoleColor.Cyan;
-        Console.WriteLine("\n==================================================");
-        Console.WriteLine("  JRiver MCWS -> Windows SMTC 状态同步桥接器");
-        Console.WriteLine("  Cute Anime Edition (实时调试日志模式)");
-        Console.WriteLine("==================================================");
+        Console.WriteLine(@"==================================================");
+        Console.WriteLine(@"        JRiver SMTC Bridge 调试控制台             ");
+        Console.WriteLine(@"==================================================");
         Console.ResetColor();
-        Console.WriteLine($"[Config] 连接目标: http://{config.Host}:{config.Port}");
-        Console.WriteLine($"[Config] 认证配置: {(string.IsNullOrEmpty(config.Username) ? "无认证" : $"用户 {config.Username}")}");
-        Console.WriteLine($"[Config] 轮询间隔: {config.PollIntervalMs} ms");
+        Console.WriteLine($"[系统配置] MCWS 服务地址: http://{config.Host}:{config.Port}");
+        Console.WriteLine($"[系统配置] 身份验证: {(string.IsNullOrEmpty(config.Username) ? "未启用 (匿名)" : $"已启用 (用户: {config.Username})")}");
+        Console.WriteLine($"[系统配置] 轮询间隔: {config.PollIntervalMs} ms");
+        Console.WriteLine($"[快捷操作] 点击托盘图标可最小化隐藏本控制台窗口");
+        Console.WriteLine(@"--------------------------------------------------");
     }
 
-    private static void PrintCurrentSnapshot()
+    private static void PrintCurrentState()
     {
-        Console.ForegroundColor = ConsoleColor.Cyan;
-        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] --- 当前运行状态快照 ---");
-        Console.ResetColor();
-
-        if (_isConnected)
+        Console.WriteLine($"\n[状态快照] 当前连接状态: {(_isConnected ? "已连接" : "未连接")}");
+        if (_latestPlaybackInfo != null && !string.IsNullOrWhiteSpace(_latestPlaybackInfo.Title))
         {
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"[连接状态] 已连接至 JRiver Media Center");
-            Console.ResetColor();
-        }
-        else
-        {
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($"[连接状态] 正在尝试连接 JRiver Media Center...");
-            Console.ResetColor();
-        }
-
-        if (_latestPlaybackInfo != null && _latestPlaybackInfo.State != PlaybackState.Stopped)
-        {
-            var pos = TimeSpan.FromMilliseconds(_latestPlaybackInfo.PositionMs);
-            var dur = TimeSpan.FromMilliseconds(_latestPlaybackInfo.DurationMs);
-            Console.WriteLine($"[当前曲目] {_latestPlaybackInfo.Title} - {_latestPlaybackInfo.Artist}");
-            Console.WriteLine($"[当前专辑] {_latestPlaybackInfo.Album}");
-            Console.WriteLine($"[当前进度] {pos:mm\\:ss} / {dur:mm\\:ss} (状态: {_latestPlaybackInfo.State})");
+            Console.WriteLine($"[播放状态] {_latestPlaybackInfo.State} | {_latestPlaybackInfo.Title} - {_latestPlaybackInfo.Artist}");
         }
         else
         {
@@ -486,7 +501,7 @@ internal static class Program
 
         if (isFirstRun)
         {
-            // 首次启动：主动弹出自适应 DPI 配置窗口让用户输入用户名和密码
+            // 首次启动：主动弹出提示窗口让用户输入用户名和密码
             ShowConfigDialog(config, isFirstRun: true);
         }
         else
@@ -513,7 +528,7 @@ internal static class Program
             Font = new Font("Segoe UI", 9.5F, FontStyle.Regular),
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            MinimumSize = new Size(480, 0)
+            MinimumSize = new Size(500, 0)
         };
 
         var mainPanel = new TableLayoutPanel
@@ -522,7 +537,7 @@ internal static class Program
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             ColumnCount = 1,
-            RowCount = 4,
+            RowCount = 5,
             Padding = new Padding(24, 20, 24, 20)
         };
         mainPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
@@ -550,7 +565,7 @@ internal static class Program
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             ColumnCount = 2,
             RowCount = 5,
-            Margin = new Padding(0, 0, 0, 16)
+            Margin = new Padding(0, 0, 0, 12)
         };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
@@ -613,14 +628,33 @@ internal static class Program
             Margin = new Padding(0, 4, 0, 6)
         };
 
+        var chkPanel = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.LeftToRight,
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Margin = new Padding(0, 2, 0, 6)
+        };
+
         var chkShowPass = new CheckBox
         {
             Text = "显示密码",
-            Anchor = AnchorStyles.Left,
             AutoSize = true,
-            Margin = new Padding(0, 2, 0, 6)
+            Margin = new Padding(0, 0, 16, 0)
         };
         chkShowPass.CheckedChanged += (s, e) => txtPass.UseSystemPasswordChar = !chkShowPass.Checked;
+
+        var chkShowNotif = new CheckBox
+        {
+            Text = "启用桌面气泡通知",
+            Checked = config.ShowNotifications,
+            AutoSize = true,
+            Margin = new Padding(0, 0, 0, 0)
+        };
+
+        chkPanel.Controls.Add(chkShowPass);
+        chkPanel.Controls.Add(chkShowNotif);
 
         grid.Controls.Add(lblHost, 0, 0);
         grid.Controls.Add(txtHost, 1, 0);
@@ -630,7 +664,57 @@ internal static class Program
         grid.Controls.Add(txtUser, 1, 2);
         grid.Controls.Add(lblPass, 0, 3);
         grid.Controls.Add(txtPass, 1, 3);
-        grid.Controls.Add(chkShowPass, 1, 4);
+        grid.Controls.Add(chkPanel, 1, 4);
+
+        var testPanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            ColumnCount = 2,
+            RowCount = 1,
+            Margin = new Padding(0, 0, 0, 14)
+        };
+        testPanel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        testPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+
+        var btnTest = new Button
+        {
+            Text = "测试连接",
+            AutoSize = true,
+            Padding = new Padding(12, 5, 12, 5),
+            Margin = new Padding(0, 0, 12, 0),
+            Cursor = Cursors.Hand
+        };
+
+        var lblTestResult = new Label
+        {
+            Text = "",
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            ForeColor = Color.DimGray,
+            Margin = new Padding(0, 6, 0, 0)
+        };
+
+        testPanel.Controls.Add(btnTest, 0, 0);
+        testPanel.Controls.Add(lblTestResult, 1, 0);
+
+        btnTest.Click += async (s, e) =>
+        {
+            btnTest.Enabled = false;
+            lblTestResult.ForeColor = Color.DimGray;
+            lblTestResult.Text = "正在尝试连接 JRiver MCWS...";
+
+            string host = string.IsNullOrWhiteSpace(txtHost.Text) ? "127.0.0.1" : txtHost.Text.Trim();
+            int port = int.TryParse(txtPort.Text.Trim(), out int p) && p > 0 ? p : 52199;
+            string? user = string.IsNullOrWhiteSpace(txtUser.Text) ? null : txtUser.Text.Trim();
+            string? pass = string.IsNullOrEmpty(txtPass.Text) ? null : txtPass.Text;
+
+            var (ok, msg) = await JRiverMcwsClient.TestConnectionAsync(host, port, user, pass);
+            lblTestResult.ForeColor = ok ? Color.DarkGreen : Color.Crimson;
+            lblTestResult.Text = msg;
+            btnTest.Enabled = true;
+        };
 
         var buttonPanel = new FlowLayoutPanel
         {
@@ -670,7 +754,8 @@ internal static class Program
         mainPanel.Controls.Add(lblTitle, 0, 0);
         mainPanel.Controls.Add(lblTip, 0, 1);
         mainPanel.Controls.Add(grid, 0, 2);
-        mainPanel.Controls.Add(buttonPanel, 0, 3);
+        mainPanel.Controls.Add(testPanel, 0, 3);
+        mainPanel.Controls.Add(buttonPanel, 0, 4);
 
         form.Controls.Add(mainPanel);
 
@@ -684,12 +769,14 @@ internal static class Program
             }
             config.Username = string.IsNullOrWhiteSpace(txtUser.Text) ? "" : txtUser.Text.Trim();
             config.Password = txtPass.Text;
+            config.ShowNotifications = chkShowNotif.Checked;
             SaveConfiguration(config);
             return true;
         }
         else if (isFirstRun)
         {
             // 首次启动跳过时保存默认配置模版，避免下次重复弹窗
+            config.ShowNotifications = chkShowNotif.Checked;
             SaveConfiguration(config);
         }
 
@@ -729,6 +816,7 @@ internal static class Program
                 if (jriverSection.TryGetProperty("Password", out var password)) target.Password = password.GetString();
                 if (jriverSection.TryGetProperty("PollIntervalMs", out var poll)) target.PollIntervalMs = poll.GetInt32();
                 if (jriverSection.TryGetProperty("Debug", out var debug)) target.Debug = debug.GetBoolean();
+                if (jriverSection.TryGetProperty("ShowNotifications", out var showNotif)) target.ShowNotifications = showNotif.GetBoolean();
             }
         }
         catch (Exception ex)

@@ -8,4 +8,5 @@ public class AppConfig
     public string? Password { get; set; }
     public int PollIntervalMs { get; set; } = 500;
     public bool Debug { get; set; } = false;
+    public bool ShowNotifications { get; set; } = true;
 }
