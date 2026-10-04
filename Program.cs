@@ -75,8 +75,8 @@ internal static class Program
     [STAThread]
     static async Task Main(string[] args)
     {
-        // 1. 初始化 WinForms 运行环境
-        Application.SetHighDpiMode(HighDpiMode.SystemAware);
+        // 1. 初始化 WinForms 运行环境（采用 PerMonitorV2 确保各显示器与高 DPI 自适应缩放）
+        Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
 
@@ -101,7 +101,7 @@ internal static class Program
             }
         }
 
-        // 3. 加载配置（首次启动时主动弹出配置窗提醒输入用户名与密码）
+        // 3. 加载配置（首次启动时主动弹出高 DPI 自适应配置窗提醒输入用户名与密码）
         _config = LoadConfiguration();
         _alwaysDebug = debugArg ?? _config.Debug;
         _isDebugActive = _alwaysDebug;
@@ -486,7 +486,7 @@ internal static class Program
 
         if (isFirstRun)
         {
-            // 首次启动：主动弹出提示窗口让用户输入用户名和密码
+            // 首次启动：主动弹出自适应 DPI 配置窗口让用户输入用户名和密码
             ShowConfigDialog(config, isFirstRun: true);
         }
         else
@@ -504,83 +504,175 @@ internal static class Program
         {
             Text = isFirstRun ? "JRiver SMTC Bridge - 首次连接设置" : "JRiver SMTC Bridge - 连接与认证设置",
             Icon = DefaultAssets.GetAppIcon(),
-            Width = 460,
-            Height = 360,
             FormBorderStyle = FormBorderStyle.FixedDialog,
             StartPosition = FormStartPosition.CenterScreen,
             MaximizeBox = false,
             MinimizeBox = false,
             TopMost = true,
-            Font = new Font("Segoe UI", 9F, FontStyle.Regular)
+            AutoScaleMode = AutoScaleMode.Dpi,
+            Font = new Font("Segoe UI", 9.5F, FontStyle.Regular),
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            MinimumSize = new Size(480, 0)
         };
+
+        var mainPanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            ColumnCount = 1,
+            RowCount = 4,
+            Padding = new Padding(24, 20, 24, 20)
+        };
+        mainPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
 
         var lblTitle = new Label
         {
             Text = isFirstRun ? "欢迎使用 JRiver SMTC Bridge！" : "JRiver MCWS 连接设置",
-            Font = new Font("Segoe UI", 11F, FontStyle.Bold),
-            Location = new Point(20, 15),
-            AutoSize = true
+            Font = new Font(form.Font.FontFamily, 12F, FontStyle.Bold),
+            AutoSize = true,
+            Margin = new Padding(0, 0, 0, 6)
         };
 
         var lblTip = new Label
         {
             Text = "请配置 JRiver Media Center 的 MCWS 连接信息。\n提示：若 JRiver 未启用身份验证，用户名和密码直接留空即可。",
-            Location = new Point(20, 42),
-            Size = new Size(405, 38),
-            ForeColor = Color.DimGray
+            AutoSize = true,
+            ForeColor = Color.DimGray,
+            Margin = new Padding(0, 0, 0, 16)
         };
 
-        var lblHost = new Label { Text = "服务地址 (Host):", Location = new Point(20, 90), Size = new Size(130, 20) };
-        var txtHost = new TextBox { Text = config.Host, Location = new Point(155, 87), Width = 265 };
+        var grid = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            ColumnCount = 2,
+            RowCount = 5,
+            Margin = new Padding(0, 0, 0, 16)
+        };
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
 
-        var lblPort = new Label { Text = "MCWS 端口 (Port):", Location = new Point(20, 125), Size = new Size(130, 20) };
-        var txtPort = new TextBox { Text = config.Port.ToString(), Location = new Point(155, 122), Width = 265 };
+        var lblHost = new Label
+        {
+            Text = "服务地址 (Host):",
+            Anchor = AnchorStyles.Left,
+            AutoSize = true,
+            Margin = new Padding(0, 6, 12, 6)
+        };
+        var txtHost = new TextBox
+        {
+            Text = config.Host,
+            Anchor = AnchorStyles.Left | AnchorStyles.Right,
+            MinimumSize = new Size(240, 0),
+            Margin = new Padding(0, 4, 0, 6)
+        };
 
-        var lblUser = new Label { Text = "用户名 (Username):", Location = new Point(20, 160), Size = new Size(130, 20) };
-        var txtUser = new TextBox { Text = config.Username ?? "", Location = new Point(155, 157), Width = 265 };
+        var lblPort = new Label
+        {
+            Text = "MCWS 端口 (Port):",
+            Anchor = AnchorStyles.Left,
+            AutoSize = true,
+            Margin = new Padding(0, 6, 12, 6)
+        };
+        var txtPort = new TextBox
+        {
+            Text = config.Port.ToString(),
+            Anchor = AnchorStyles.Left | AnchorStyles.Right,
+            Margin = new Padding(0, 4, 0, 6)
+        };
 
-        var lblPass = new Label { Text = "密码 (Password):", Location = new Point(20, 195), Size = new Size(130, 20) };
-        var txtPass = new TextBox { Text = config.Password ?? "", Location = new Point(155, 192), Width = 265, UseSystemPasswordChar = true };
+        var lblUser = new Label
+        {
+            Text = "用户名 (Username):",
+            Anchor = AnchorStyles.Left,
+            AutoSize = true,
+            Margin = new Padding(0, 6, 12, 6)
+        };
+        var txtUser = new TextBox
+        {
+            Text = config.Username ?? "",
+            Anchor = AnchorStyles.Left | AnchorStyles.Right,
+            Margin = new Padding(0, 4, 0, 6)
+        };
+
+        var lblPass = new Label
+        {
+            Text = "密码 (Password):",
+            Anchor = AnchorStyles.Left,
+            AutoSize = true,
+            Margin = new Padding(0, 6, 12, 6)
+        };
+        var txtPass = new TextBox
+        {
+            Text = config.Password ?? "",
+            Anchor = AnchorStyles.Left | AnchorStyles.Right,
+            UseSystemPasswordChar = true,
+            Margin = new Padding(0, 4, 0, 6)
+        };
 
         var chkShowPass = new CheckBox
         {
             Text = "显示密码",
-            Location = new Point(155, 222),
-            AutoSize = true
+            Anchor = AnchorStyles.Left,
+            AutoSize = true,
+            Margin = new Padding(0, 2, 0, 6)
         };
         chkShowPass.CheckedChanged += (s, e) => txtPass.UseSystemPasswordChar = !chkShowPass.Checked;
 
-        var btnOk = new Button
+        grid.Controls.Add(lblHost, 0, 0);
+        grid.Controls.Add(txtHost, 1, 0);
+        grid.Controls.Add(lblPort, 0, 1);
+        grid.Controls.Add(txtPort, 1, 1);
+        grid.Controls.Add(lblUser, 0, 2);
+        grid.Controls.Add(txtUser, 1, 2);
+        grid.Controls.Add(lblPass, 0, 3);
+        grid.Controls.Add(txtPass, 1, 3);
+        grid.Controls.Add(chkShowPass, 1, 4);
+
+        var buttonPanel = new FlowLayoutPanel
         {
-            Text = isFirstRun ? "保存并启动" : "保存设置",
-            DialogResult = DialogResult.OK,
-            Location = new Point(215, 265),
-            Width = 100,
-            Height = 32
+            FlowDirection = FlowDirection.RightToLeft,
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Margin = new Padding(0, 8, 0, 0)
         };
 
         var btnCancel = new Button
         {
             Text = isFirstRun ? "跳过 (默认)" : "取消",
             DialogResult = DialogResult.Cancel,
-            Location = new Point(325, 265),
-            Width = 95,
-            Height = 32
+            AutoSize = true,
+            Padding = new Padding(16, 6, 16, 6),
+            Margin = new Padding(0, 0, 0, 0),
+            Cursor = Cursors.Hand
         };
+
+        var btnOk = new Button
+        {
+            Text = isFirstRun ? "保存并启动" : "保存设置",
+            DialogResult = DialogResult.OK,
+            AutoSize = true,
+            Padding = new Padding(16, 6, 16, 6),
+            Margin = new Padding(0, 0, 10, 0),
+            Cursor = Cursors.Hand
+        };
+
+        buttonPanel.Controls.Add(btnCancel);
+        buttonPanel.Controls.Add(btnOk);
 
         form.AcceptButton = btnOk;
         form.CancelButton = btnCancel;
 
-        form.Controls.AddRange(new Control[]
-        {
-            lblTitle, lblTip,
-            lblHost, txtHost,
-            lblPort, txtPort,
-            lblUser, txtUser,
-            lblPass, txtPass,
-            chkShowPass,
-            btnOk, btnCancel
-        });
+        mainPanel.Controls.Add(lblTitle, 0, 0);
+        mainPanel.Controls.Add(lblTip, 0, 1);
+        mainPanel.Controls.Add(grid, 0, 2);
+        mainPanel.Controls.Add(buttonPanel, 0, 3);
+
+        form.Controls.Add(mainPanel);
 
         var result = form.ShowDialog();
         if (result == DialogResult.OK)
