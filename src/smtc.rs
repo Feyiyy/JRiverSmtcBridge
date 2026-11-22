@@ -223,10 +223,7 @@ impl SmtcManager {
 
                     let _ = self.smtc.UpdateTimelineProperties(&timeline);
 
-                    log_timeline(&format!(
-                        "发送时间轴: {} ms / {} ms (状态: {:?})",
-                        info.position_ms, info.duration_ms, info.state
-                    ));
+                    log_timeline(info.position_ms, info.duration_ms, info.state.as_str());
 
                     self.last_position_ms = info.position_ms;
                     self.last_duration_ms = info.duration_ms;
