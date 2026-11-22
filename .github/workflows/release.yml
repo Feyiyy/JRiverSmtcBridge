@@ -17,15 +17,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-          dotnet-quality: 'preview'
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Publish Win-x64 Single File
+      - name: Build Release (Single File Binary)
         run: |
-          dotnet publish JRiver.SmtcBridge.csproj -c Release -o publish
+          cargo build --release
+          New-Item -ItemType Directory -Force -Path publish
+          Copy-Item target/release/JRiver_SmtcBridge.exe publish/JRiver.SmtcBridge.exe
 
       - name: Upload Single-File Release Asset
         uses: softprops/action-gh-release@v2

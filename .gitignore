@@ -1,6 +1,5 @@
-# Build results
-[Bb]in/
-[Oo]bj/
+# Rust build results
+/target/
 publish/
 *.zip
 

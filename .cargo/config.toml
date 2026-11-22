@@ -1,0 +1,3 @@
+[target.x86_64-pc-windows-gnullvm]
+linker = "C:\\llvm-mingw\\bin\\x86_64-w64-mingw32-clang.exe"
+ar = "C:\\llvm-mingw\\bin\\x86_64-w64-mingw32-ar.exe"
