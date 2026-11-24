@@ -25,12 +25,18 @@ jobs:
           cargo build --release
           New-Item -ItemType Directory -Force -Path publish
           Copy-Item target/release/JRiver_SmtcBridge.exe publish/JRiver.SmtcBridge.exe
+          Copy-Item appsettings.json publish/appsettings.json
+          Copy-Item README.md publish/README.md
+          Copy-Item LICENSE publish/LICENSE
+          Compress-Archive -Path publish/JRiver.SmtcBridge.exe, publish/appsettings.json, publish/README.md, publish/LICENSE -DestinationPath publish/JRiver.SmtcBridge-v2.0.0-win-x64.zip
 
-      - name: Upload Single-File Release Asset
+      - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         with:
-          files: publish/JRiver.SmtcBridge.exe
+          files: |
+            publish/JRiver.SmtcBridge.exe
+            publish/JRiver.SmtcBridge-v2.0.0-win-x64.zip
           generate_release_notes: true
           draft: false
           prerelease: false

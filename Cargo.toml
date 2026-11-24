@@ -2,7 +2,7 @@
 name = "jriver-smtc-bridge"
 version = "2.0.0"
 edition = "2021"
-authors = ["lmmlo"]
+authors = ["VVVXO"]
 description = "Native Win32 & WinRT SMTC bridge for JRiver Media Center"
 
 [[bin]]

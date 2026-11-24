@@ -1,3 +1,9 @@
 [target.x86_64-pc-windows-gnullvm]
 linker = "C:\\llvm-mingw\\bin\\x86_64-w64-mingw32-clang.exe"
 ar = "C:\\llvm-mingw\\bin\\x86_64-w64-mingw32-ar.exe"
+rustflags = [
+    "--remap-path-prefix=C:\\Users\\lmmlo=/home/builder",
+    "--remap-path-prefix=C:/Users/lmmlo=/home/builder",
+    "--remap-path-prefix=D:\\Source=/source",
+    "--remap-path-prefix=D:/Source=/source",
+]
